@@ -1,0 +1,7 @@
+{
+  "name": "Universal Style Swap",
+  "description": "Recreate the visual style of a reference image with a new subject using Gemini Nano Banana Pro.",
+  "requestFramePermissions": [
+    "camera"
+  ]
+}
