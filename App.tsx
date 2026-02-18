@@ -1,8 +1,9 @@
-import React, { useState } from 'react';
-import { Wand2, Loader2, Info, Ratio, Zap, Check } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { Wand2, Loader2, Info, Ratio, Zap, Check, Coins } from 'lucide-react';
 import ImageInput from './components/ImageInput';
 import ApiKeyManager from './components/ApiKeyManager';
 import GeneratedLightbox from './components/GeneratedLightbox';
+import SubscriptionModal from './components/SubscriptionModal';
 import { generateImage } from './services/gemini';
 import { AspectRatio } from './types';
 
@@ -16,9 +17,39 @@ const App: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [isLightboxOpen, setIsLightboxOpen] = useState(false);
   const [apiKeyReady, setApiKeyReady] = useState(false);
+  
+  // Credit System State
+  const [credits, setCredits] = useState<number>(0);
+  const [showSubscription, setShowSubscription] = useState(false);
+
+  // Initialize credits from local storage
+  useEffect(() => {
+    const savedCredits = localStorage.getItem('style_swap_credits');
+    if (savedCredits === null) {
+      // First time user gets 1 free credit
+      setCredits(1);
+      localStorage.setItem('style_swap_credits', '1');
+    } else {
+      setCredits(parseInt(savedCredits, 10));
+    }
+  }, []);
+
+  const handleSubscribe = () => {
+    // Top up credits (10 credits for 10€)
+    const newCredits = credits + 10;
+    setCredits(newCredits);
+    localStorage.setItem('style_swap_credits', newCredits.toString());
+    setShowSubscription(false);
+  };
 
   const handleGenerate = async () => {
     if (!styleImage || !subjectImage) return;
+
+    // Check credits
+    if (credits <= 0) {
+        setShowSubscription(true);
+        return;
+    }
 
     setIsGenerating(true);
     setError(null);
@@ -33,8 +64,15 @@ const App: React.FC = () => {
         aspectRatio,
         keepClothes
       );
+      
       setGeneratedImage(result);
       setIsLightboxOpen(true);
+      
+      // Deduct credit only on success
+      const newBalance = Math.max(0, credits - 1);
+      setCredits(newBalance);
+      localStorage.setItem('style_swap_credits', newBalance.toString());
+
     } catch (err: any) {
         const errorMessage = err?.message || '';
         if (errorMessage.includes("Requested entity was not found")) {
@@ -54,15 +92,48 @@ const App: React.FC = () => {
   return (
     <div className="min-h-screen bg-white text-black font-sans selection:bg-gray-100 selection:text-black">
       <ApiKeyManager onKeyReady={setApiKeyReady} />
+      
+      <SubscriptionModal 
+        isOpen={showSubscription} 
+        onClose={() => setShowSubscription(false)} 
+        onSubscribe={handleSubscribe} 
+      />
+
+      {/* Credit Counter */}
+      <div className="fixed top-6 right-6 z-40 hidden md:flex items-center gap-2 px-4 py-2 bg-white border border-black shadow-sm">
+        <Coins size={16} className={credits > 0 ? "text-black" : "text-gray-400"} />
+        <span className="font-medium text-sm">
+            {credits > 0 ? `${credits} Credits` : 'No credits'}
+        </span>
+        {credits === 0 && (
+            <button 
+                onClick={() => setShowSubscription(true)}
+                className="ml-2 text-xs font-bold underline decoration-2 underline-offset-2 hover:text-gray-600"
+            >
+                Get more
+            </button>
+        )}
+      </div>
 
       <main className="max-w-7xl mx-auto px-6 py-12">
         <div className="max-w-5xl mx-auto">
-            <div className="mb-12 text-left pl-1">
-                <h2 className="text-4xl md:text-5xl font-normal mb-4 leading-none tracking-tight">Universal <br/> Style Swap</h2>
-                <p className="text-gray-600 text-lg max-w-xl font-light">
-                    Any vibe. Any subject. <br/>
-                    <span className="text-black font-medium">Remix reality.</span> No filters.
-                </p>
+            <div className="flex justify-between items-end mb-12">
+                <div className="text-left pl-1">
+                    <h2 className="text-4xl md:text-5xl font-normal mb-4 leading-none tracking-tight">Universal <br/> Style Swap</h2>
+                    <p className="text-gray-600 text-lg max-w-xl font-light">
+                        Any vibe. Any subject. <br/>
+                        <span className="text-black font-medium">Remix reality.</span> No filters.
+                    </p>
+                </div>
+                {/* Mobile credit counter */}
+                <div className="md:hidden flex flex-col items-end">
+                     <span className="text-sm font-medium flex items-center gap-1">
+                        <Coins size={14} /> {credits}
+                     </span>
+                     {credits === 0 && (
+                         <button onClick={() => setShowSubscription(true)} className="text-xs underline mt-1 font-bold">Buy</button>
+                     )}
+                </div>
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-0 border border-black mb-12">
@@ -147,13 +218,13 @@ const App: React.FC = () => {
                     onClick={handleGenerate}
                     disabled={!isReady || isGenerating}
                     className={`
-                        w-full md:w-auto px-8 py-4 text-lg font-medium tracking-wide border border-black transition-all duration-150
+                        w-full md:w-auto px-8 py-4 text-lg font-medium tracking-wide border border-black transition-all duration-150 relative overflow-hidden
                         ${isReady && !isGenerating 
                             ? 'bg-black text-white hover:bg-white hover:text-black cursor-pointer' 
                             : 'bg-gray-100 text-gray-400 border-gray-200 cursor-not-allowed'}
                     `}
                 >
-                    <span className="flex items-center justify-center gap-3">
+                    <span className="relative z-10 flex items-center justify-center gap-3">
                         {isGenerating ? (
                             <>
                                 <Loader2 className="animate-spin w-5 h-5" />
@@ -161,7 +232,11 @@ const App: React.FC = () => {
                             </>
                         ) : (
                             <>
-                                Generate image
+                                {credits > 0 ? (
+                                    <>Generate Image <span className="text-xs opacity-60 ml-1">({credits} left)</span></>
+                                ) : (
+                                    <>Recharge to Generate</>
+                                )}
                             </>
                         )}
                     </span>
