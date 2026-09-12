@@ -1,10 +1,10 @@
 import React, { useState, useEffect } from 'react';
-import { Wand2, Loader2, Info, Ratio, Zap, Check, Coins } from 'lucide-react';
+import { Loader2, Check, Key as KeyIcon } from 'lucide-react';
 import ImageInput from './components/ImageInput';
-import ApiKeyManager from './components/ApiKeyManager';
+import KeyPanel from './components/KeyPanel';
 import GeneratedLightbox from './components/GeneratedLightbox';
-import SubscriptionModal from './components/SubscriptionModal';
-import { generateImage } from './services/gemini';
+import { swap } from './services/swap';
+import { loadKey, providerById, type Key } from './services/providers';
 import { AspectRatio } from './types';
 
 const App: React.FC = () => {
@@ -16,47 +16,28 @@ const App: React.FC = () => {
   const [isGenerating, setIsGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isLightboxOpen, setIsLightboxOpen] = useState(false);
-  const [apiKeyReady, setApiKeyReady] = useState(false);
-  
-  // Credit System State
-  const [credits, setCredits] = useState<number>(0);
-  const [showSubscription, setShowSubscription] = useState(false);
 
-  // Initialize credits from local storage
+  // The key is the user's own, kept in this browser and nowhere else.
+  const [apiKey, setApiKey] = useState<Key | null>(null);
+  const [keyPanelOpen, setKeyPanelOpen] = useState(false);
+
   useEffect(() => {
-    const savedCredits = localStorage.getItem('style_swap_credits');
-    if (savedCredits === null) {
-      // First time user gets 1 free credit
-      setCredits(1);
-      localStorage.setItem('style_swap_credits', '1');
-    } else {
-      setCredits(parseInt(savedCredits, 10));
-    }
+    const saved = loadKey();
+    setApiKey(saved);
+    setKeyPanelOpen(!saved);
   }, []);
-
-  const handleSubscribe = () => {
-    // Top up credits (10 credits for 10€)
-    const newCredits = credits + 10;
-    setCredits(newCredits);
-    localStorage.setItem('style_swap_credits', newCredits.toString());
-    setShowSubscription(false);
-  };
 
   const handleGenerate = async () => {
     if (!styleImage || !subjectImage) return;
-
-    // Check credits
-    if (credits <= 0) {
-        setShowSubscription(true);
-        return;
-    }
+    if (!apiKey) { setKeyPanelOpen(true); return; }
 
     setIsGenerating(true);
     setError(null);
     setGeneratedImage(null);
 
     try {
-      const result = await generateImage(
+      const result = await swap(
+        apiKey,
         styleImage.base64,
         styleImage.mime,
         subjectImage.base64,
@@ -64,56 +45,48 @@ const App: React.FC = () => {
         aspectRatio,
         keepClothes
       );
-      
+
       setGeneratedImage(result);
       setIsLightboxOpen(true);
-      
-      // Deduct credit only on success
-      const newBalance = Math.max(0, credits - 1);
-      setCredits(newBalance);
-      localStorage.setItem('style_swap_credits', newBalance.toString());
 
     } catch (err: any) {
-        const errorMessage = err?.message || '';
-        if (errorMessage.includes("Requested entity was not found")) {
-             setError("API Key Error: Invalid or expired key.");
+        const message = err?.message || '';
+        // A bad key is the one failure worth naming, because it is the one the
+        // person can fix without guessing.
+        if (/API key|API_KEY|Unauthorized|401|403|not found/i.test(message)) {
+             setError(`Key rejected by ${providerById(apiKey.provider).name}. Check it, or use another provider.`);
+             setKeyPanelOpen(true);
         } else {
-             setError(errorMessage);
+             setError(message);
         }
     } finally {
       setIsGenerating(false);
     }
   };
 
-  const isReady = styleImage && subjectImage && apiKeyReady;
+  const isReady = styleImage && subjectImage && apiKey;
 
   const ratios: AspectRatio[] = ["1:1", "4:3", "3:4", "16:9", "9:16"];
 
   return (
     <div className="min-h-screen bg-white text-black font-sans selection:bg-gray-100 selection:text-black">
-      <ApiKeyManager onKeyReady={setApiKeyReady} />
-      
-      <SubscriptionModal 
-        isOpen={showSubscription} 
-        onClose={() => setShowSubscription(false)} 
-        onSubscribe={handleSubscribe} 
+      <KeyPanel
+        value={apiKey}
+        onChange={setApiKey}
+        open={keyPanelOpen}
+        onOpenChange={setKeyPanelOpen}
       />
 
-      {/* Credit Counter */}
-      <div className="fixed top-6 right-6 z-40 hidden md:flex items-center gap-2 px-4 py-2 bg-white border border-black shadow-sm">
-        <Coins size={16} className={credits > 0 ? "text-black" : "text-gray-400"} />
-        <span className="font-medium text-sm">
-            {credits > 0 ? `${credits} Credits` : 'No credits'}
+      {/* Which key is paying, and a way to change it */}
+      <button
+        onClick={() => setKeyPanelOpen(true)}
+        className="fixed top-6 right-6 z-40 hidden md:flex items-center gap-2 px-4 py-2 bg-white border border-black text-sm hover:bg-gray-50 transition-colors"
+      >
+        <KeyIcon size={14} className={apiKey ? 'text-black' : 'text-gray-400'} />
+        <span className="font-medium">
+          {apiKey ? providerById(apiKey.provider).name : 'Add a key'}
         </span>
-        {credits === 0 && (
-            <button 
-                onClick={() => setShowSubscription(true)}
-                className="ml-2 text-xs font-bold underline decoration-2 underline-offset-2 hover:text-gray-600"
-            >
-                Get more
-            </button>
-        )}
-      </div>
+      </button>
 
       <main className="max-w-7xl mx-auto px-6 py-12">
         <div className="max-w-5xl mx-auto">
@@ -125,15 +98,11 @@ const App: React.FC = () => {
                         <span className="text-black font-medium">Remix reality.</span> No filters.
                     </p>
                 </div>
-                {/* Mobile credit counter */}
-                <div className="md:hidden flex flex-col items-end">
-                     <span className="text-sm font-medium flex items-center gap-1">
-                        <Coins size={14} /> {credits}
-                     </span>
-                     {credits === 0 && (
-                         <button onClick={() => setShowSubscription(true)} className="text-xs underline mt-1 font-bold">Buy</button>
-                     )}
-                </div>
+                {/* The same, on a phone */}
+                <button onClick={() => setKeyPanelOpen(true)} className="md:hidden flex items-center gap-1.5 text-sm font-medium">
+                    <KeyIcon size={14} className={apiKey ? 'text-black' : 'text-gray-400'} />
+                    {apiKey ? providerById(apiKey.provider).name : 'Add a key'}
+                </button>
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-0 border border-black mb-12">
@@ -230,20 +199,16 @@ const App: React.FC = () => {
                                 <Loader2 className="animate-spin w-5 h-5" />
                                 Remixing Reality...
                             </>
+                        ) : apiKey ? (
+                            <>Generate Image <span className="text-xs opacity-60 ml-1">on {providerById(apiKey.provider).name}</span></>
                         ) : (
-                            <>
-                                {credits > 0 ? (
-                                    <>Generate Image <span className="text-xs opacity-60 ml-1">({credits} left)</span></>
-                                ) : (
-                                    <>Recharge to Generate</>
-                                )}
-                            </>
+                            <>Add a key to generate</>
                         )}
                     </span>
                 </button>
-                {!apiKeyReady && (
+                {!apiKey && (
                     <p className="mt-4 text-xs font-normal text-gray-500">
-                        Waiting for API key...
+                        Google, fal.ai or OpenRouter — whichever you already pay for.
                     </p>
                 )}
             </div>
