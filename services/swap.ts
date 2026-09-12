@@ -1,6 +1,6 @@
-import { USER_PROMPT_TEMPLATE } from '../constants';
 import { AspectRatio } from '../types';
 import { ask, describe, Key, Shot } from './providers';
+import { recipe, say } from './skill';
 
 /*
  * The swap, and what to do when it is refused.
@@ -38,21 +38,9 @@ export async function swap(
   const style: Shot = { data: strip(styleUrl), mime: styleMime };
   const subject: Shot = { data: strip(subjectUrl), mime: subjectMime };
 
-  const clothing = keepClothes
-    ? 'STRICTLY PRESERVE the clothing and outfit worn by the subject in Reference Image 2 (Subject Source). Keep the original clothes while adapting lighting and environment.'
-    : 'Replace the subject’s clothing with the clothing style, costume design, or outfit found in Reference Image 1 (Style Source).';
-
-  const recipe = (note = '') => `
-Reference Image 1 (Style Source): [First Image Attached]
-Reference Image 2 (Subject Source): [Second Image Attached]
-
-Instructions: ${USER_PROMPT_TEMPLATE}
-
-CRITICAL CLOTHING INSTRUCTION: ${clothing}${note}`;
-
   // 1 — both images, straight in
   try {
-    return await ask({ key, images: [style, subject], prompt: recipe(), aspectRatio });
+    return await ask({ key, images: [style, subject], prompt: recipe(keepClothes), aspectRatio });
   } catch (e) {
     if (!isRefusal(e)) throw e;
   }
@@ -62,14 +50,14 @@ CRITICAL CLOTHING INSTRUCTION: ${clothing}${note}`;
     const facelessUrl = await ask({
       key,
       images: [style],
-      prompt: 'Generate a copy of this image but remove the person’s face (blur it or make it headless) to obscure their identity. Keep the clothing, outfit, lighting, background, and composition EXACTLY the same. The goal is to see the clothes without the person’s identity.',
+      prompt: say('When refused: anonymise'),
       aspectRatio: '1:1',
     });
     const faceless: Shot = { data: strip(facelessUrl), mime: 'image/png' };
     return await ask({
       key,
       images: [faceless, subject],
-      prompt: recipe('\nNote: the style source image has been processed to obscure the original identity. Use the outfit and lighting visible in it.'),
+      prompt: recipe(keepClothes, '\nNote: the style source image has been processed to obscure the original identity. Use the outfit and lighting visible in it.'),
       aspectRatio,
     });
   } catch (e) {
@@ -90,13 +78,9 @@ Reference Image: [Subject Image Attached]
 
 Target Style & Context Description: ${described}
 
-Task: Generate a photorealistic image of the person in the Reference Image, adapted to the style and context described above.
+Task: ${say('When refused: from words')}
 
-Instructions:
-- STRICTLY PRESERVE the facial identity and likeness of the person in the Reference Image.
-- Apply the lighting, mood, camera angle, and background described in the Target Style.
-- ${clothingInWords}
-- Ensure high quality, realistic textures, and coherent lighting.`,
+- ${clothingInWords}`,
       aspectRatio,
     });
   } catch {

@@ -208,7 +208,7 @@ const App: React.FC = () => {
                 </button>
                 {!apiKey && (
                     <p className="mt-4 text-xs font-normal text-gray-500">
-                        Google, fal.ai or OpenRouter — whichever you already pay for.
+                        Gemini or GPT Image — whichever you already pay for.
                     </p>
                 )}
             </div>

@@ -5,14 +5,9 @@ import { PROVIDERS, providerById, saveKey, type Key, type ProviderId } from '../
 /*
  * Bring your own key.
  *
- * What was here before was a credit counter: one free generation, then a modal
- * asking for ten euros that went nowhere. It was the shape of a business around
- * a tool that costs a fraction of a cent to run, and it meant the app only
- * worked on one person's bill.
- *
- * This is the honest version. Choose where you already have credit — Google,
- * fal.ai, OpenRouter — paste the key, and it stays in this browser. There is no
- * server in this app to send it to.
+ * Two providers, not a menu: Gemini and GPT Image are the ones most people
+ * already have a key for, and a minute gets you one either way. Paste it and it
+ * stays in this browser — there is no server in this app to send it to.
  */
 
 interface Props {
@@ -71,8 +66,8 @@ const KeyPanel: React.FC<Props> = ({ value, onChange, open, onOpenChange }) => {
 
         <h2 className="text-xl font-medium mb-2">Your key, your bill</h2>
         <p className="text-gray-600 mb-6 text-sm leading-relaxed">
-          Pick where you already have credit and paste a key. It stays in this browser —
-          there is no server in this app to send it to.
+          Gemini or GPT Image, whichever you already have a key for. It stays in this
+          browser — there is no server in this app to send it to.
         </p>
 
         <div className="flex border border-black mb-5">
