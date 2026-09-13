@@ -2,10 +2,14 @@ import React, { useState, useEffect } from 'react';
 import { Loader2, Check, Key as KeyIcon } from 'lucide-react';
 import ImageInput from './components/ImageInput';
 import KeyPanel from './components/KeyPanel';
+import KeyMenu from './components/KeyMenu';
 import GeneratedLightbox from './components/GeneratedLightbox';
 import { swap } from './services/swap';
-import { loadKey, providerById, type Key } from './services/providers';
+import { loadKey, providerById, qualityFor, type Key, type QualityId } from './services/providers';
 import { AspectRatio } from './types';
+
+/* Cents, written the way a price is written rather than the way a float is. */
+const money = (n: number) => (n < 0.01 ? `${(n * 100).toFixed(1)}¢` : `$${n.toFixed(2)}`);
 
 const App: React.FC = () => {
   const [styleImage, setStyleImage] = useState<{ base64: string; mime: string } | null>(null);
@@ -13,6 +17,11 @@ const App: React.FC = () => {
   const [generatedImage, setGeneratedImage] = useState<string | null>(null);
   const [aspectRatio, setAspectRatio] = useState<AspectRatio>("1:1");
   const [keepClothes, setKeepClothes] = useState<boolean>(false);
+  /* Starts at the cheapest level on purpose: it is enough for a good result,
+     and nothing should quietly spend twenty times more than it has to on the
+     first press. One level for both providers, resolved per provider, so a key
+     swapped from Google to GPT does not silently change what you are paying. */
+  const [quality, setQuality] = useState<QualityId>('draft');
   const [isGenerating, setIsGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isLightboxOpen, setIsLightboxOpen] = useState(false);
@@ -43,7 +52,8 @@ const App: React.FC = () => {
         subjectImage.base64,
         subjectImage.mime,
         aspectRatio,
-        keepClothes
+        keepClothes,
+        quality
       );
 
       setGeneratedImage(result);
@@ -68,6 +78,10 @@ const App: React.FC = () => {
 
   const ratios: AspectRatio[] = ["1:1", "4:3", "3:4", "16:9", "9:16"];
 
+  /* What the current key would be charged for the next press. */
+  const provider = apiKey ? providerById(apiKey.provider) : null;
+  const level = apiKey ? qualityFor(apiKey.provider, quality) : null;
+
   return (
     <div className="min-h-screen bg-white text-black font-sans selection:bg-gray-100 selection:text-black">
       <KeyPanel
@@ -77,16 +91,15 @@ const App: React.FC = () => {
         onOpenChange={setKeyPanelOpen}
       />
 
-      {/* Which key is paying, and a way to change it */}
-      <button
-        onClick={() => setKeyPanelOpen(true)}
-        className="fixed top-6 right-6 z-40 hidden md:flex items-center gap-2 px-4 py-2 bg-white border border-black text-sm hover:bg-gray-50 transition-colors"
-      >
-        <KeyIcon size={14} className={apiKey ? 'text-black' : 'text-gray-400'} />
-        <span className="font-medium">
-          {apiKey ? providerById(apiKey.provider).name : 'Add a key'}
-        </span>
-      </button>
+      {/* Which key is paying, what it is set to spend, and a way to change both */}
+      <div className="fixed top-6 right-6 z-40 hidden md:block">
+        <KeyMenu
+          value={apiKey}
+          quality={quality}
+          onQuality={setQuality}
+          onChangeKey={() => setKeyPanelOpen(true)}
+        />
+      </div>
 
       <main className="max-w-7xl mx-auto px-6 py-12">
         <div className="max-w-5xl mx-auto">
@@ -98,11 +111,16 @@ const App: React.FC = () => {
                         <span className="text-black font-medium">Remix reality.</span> No filters.
                     </p>
                 </div>
-                {/* The same, on a phone */}
-                <button onClick={() => setKeyPanelOpen(true)} className="md:hidden flex items-center gap-1.5 text-sm font-medium">
-                    <KeyIcon size={14} className={apiKey ? 'text-black' : 'text-gray-400'} />
-                    {apiKey ? providerById(apiKey.provider).name : 'Add a key'}
-                </button>
+                {/* The same, on a phone, where it opens on a tap instead */}
+                <div className="md:hidden">
+                    <KeyMenu
+                        value={apiKey}
+                        quality={quality}
+                        onQuality={setQuality}
+                        onChangeKey={() => setKeyPanelOpen(true)}
+                        variant="inline"
+                    />
+                </div>
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-0 border border-black mb-12">
@@ -206,7 +224,14 @@ const App: React.FC = () => {
                         )}
                     </span>
                 </button>
-                {!apiKey && (
+                {/* The price before the press, not after it. Approximate on
+                    purpose: the photographs you send are billed too, and a
+                    refusal costs a second generation. */}
+                {apiKey && provider && level ? (
+                    <p className="mt-4 text-xs font-normal text-gray-500">
+                        About {money(level.usd)} an image, billed by {provider.name} to your key.
+                    </p>
+                ) : (
                     <p className="mt-4 text-xs font-normal text-gray-500">
                         Gemini or GPT Image — whichever you already pay for.
                     </p>

@@ -22,6 +22,33 @@ import { say } from './skill';
 
 export type ProviderId = 'google' | 'openai';
 
+export type QualityId = 'draft' | 'standard' | 'high';
+
+/*
+ * Quality is the price, so it is a choice and the price is on the label.
+ *
+ * Left to itself each provider picks its expensive end, which is the right
+ * default for a picture you are keeping and the wrong one for the four you
+ * throw away first. Draft exists for those four.
+ *
+ * `usd` is an approximation and says so in the UI: the real bill also counts
+ * the two photographs you sent, and a refusal that falls through to the second
+ * attempt costs two generations rather than one. It is the right order of
+ * magnitude, which is the thing worth knowing before you press the button.
+ */
+export interface Quality {
+  id: QualityId;
+  name: string;
+  /** One line, for the label under the buttons. */
+  note: string;
+  /** Roughly what one image costs, in dollars. */
+  usd: number;
+  /** Quality can mean a different model, not only a different setting. */
+  model: string;
+  /** Google: the pixel budget. OpenAI: the literal quality parameter. */
+  param: string;
+}
+
 export interface Provider {
   id: ProviderId;
   name: string;
@@ -32,6 +59,7 @@ export interface Provider {
   /** A hint so an obviously wrong key fails here rather than at the API. */
   looksLikeKey: (k: string) => boolean;
   placeholder: string;
+  qualities: Quality[];
 }
 
 export const PROVIDERS: Provider[] = [
@@ -42,6 +70,24 @@ export const PROVIDERS: Provider[] = [
     keysUrl: 'https://aistudio.google.com/apikey',
     looksLikeKey: k => k.startsWith('AIza') && k.length > 30,
     placeholder: 'AIza…',
+    qualities: [
+      {
+        id: 'draft',
+        name: 'Draft',
+        note: 'Gemini 2.5 Flash Image — fast, cheap, and usually enough',
+        usd: 0.039,
+        model: 'gemini-2.5-flash-image',
+        param: '1K',
+      },
+      {
+        id: 'standard',
+        name: 'Best',
+        note: 'Gemini 3 Pro Image — the one this recipe is written for',
+        usd: 0.134,
+        model: 'gemini-3-pro-image-preview',
+        param: '1K',
+      },
+    ],
   },
   {
     id: 'openai',
@@ -50,11 +96,22 @@ export const PROVIDERS: Provider[] = [
     keysUrl: 'https://platform.openai.com/api-keys',
     looksLikeKey: k => k.startsWith('sk-') && k.length > 20,
     placeholder: 'sk-…',
+    qualities: [
+      { id: 'draft', name: 'Low', note: 'Enough for a good result — the one I would recommend', usd: 0.006, model: 'gpt-image-2', param: 'low' },
+      { id: 'standard', name: 'Medium', note: 'Enough for anything going on a profile', usd: 0.053, model: 'gpt-image-2', param: 'medium' },
+      { id: 'high', name: 'High', note: 'Everything the model has, at eight times the price', usd: 0.211, model: 'gpt-image-2', param: 'high' },
+    ],
   },
 ];
 
 export const providerById = (id: ProviderId) =>
   PROVIDERS.find(p => p.id === id) || PROVIDERS[0];
+
+/** The chosen quality, or that provider's middle one if it has no such level. */
+export function qualityFor(provider: ProviderId, id: QualityId): Quality {
+  const list = providerById(provider).qualities;
+  return list.find(q => q.id === id) || list.find(q => q.id === 'standard') || list[0];
+}
 
 export interface Key {
   provider: ProviderId;
@@ -97,14 +154,19 @@ export interface Ask {
   images: Shot[];
   prompt: string;
   aspectRatio: string;
+  /** Which level to pay for. Defaults to the middle one. */
+  quality?: QualityId;
 }
 
 const dataUrl = (mime: string, data: string) => `data:${mime || 'image/png'};base64,${data}`;
 
 /* Google, through the REST endpoint rather than the SDK, so all three
    providers are one shape and the bundle carries one less dependency. */
-async function google({ key, images, prompt, aspectRatio }: Ask): Promise<string> {
-  const model = providerById('google').model;
+async function google({ key, images, prompt, aspectRatio, quality }: Ask): Promise<string> {
+  /* On Google the level is a different model, so it is chosen here rather than
+     passed as a parameter the endpoint has never heard of. */
+  const q = qualityFor('google', quality || 'standard');
+  const model = q.model;
   const res = await fetch(
     `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
     {
@@ -117,7 +179,7 @@ async function google({ key, images, prompt, aspectRatio }: Ask): Promise<string
             { text: prompt },
           ],
         }],
-        generationConfig: { imageConfig: { aspectRatio, imageSize: '1K' } },
+        generationConfig: { imageConfig: { aspectRatio, imageSize: q.param } },
       }),
     });
   const json = await res.json();
@@ -152,11 +214,15 @@ const asFile = async (s: Shot, name: string) => {
   return new File([await res.blob()], name, { type: s.mime || 'image/png' });
 };
 
-async function openai({ key, images, prompt, aspectRatio }: Ask): Promise<string> {
+async function openai({ key, images, prompt, aspectRatio, quality }: Ask): Promise<string> {
+  /* Left unset this defaults to auto, which is the expensive end — the one
+     setting on this request that can multiply the bill by thirty. */
+  const q = qualityFor('openai', quality || 'standard');
   const form = new FormData();
-  form.append('model', providerById('openai').model);
+  form.append('model', q.model);
   form.append('prompt', prompt);
   form.append('size', OPENAI_SIZE[aspectRatio] || 'auto');
+  form.append('quality', q.param);
   form.append('n', '1');
   for (const [i, img] of images.entries()) {
     form.append('image[]', await asFile(img, `image-${i}.png`));
